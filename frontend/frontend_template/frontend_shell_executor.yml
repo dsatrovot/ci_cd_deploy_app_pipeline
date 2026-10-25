@@ -1,0 +1,3 @@
+.frontend_shell_executor:
+  before_script:
+    - cd frontend

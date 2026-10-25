@@ -1,0 +1,14 @@
+[Unit]
+Description=Pulseapp server
+After=network.target
+[Service]
+User=pulseapp_user
+Group=pulseapp_user
+Type=simple
+ExecStart=/opt/pulseapp_backend/app
+EnvironmentFile=/home/pulseapp_user/.config/systemd/user/pulseapp_server.env
+WorkingDirectory=/opt/pulseapp_backend
+Restart=on-failure
+RestartSec=5s
+[Install]
+WantedBy=multi-user.target

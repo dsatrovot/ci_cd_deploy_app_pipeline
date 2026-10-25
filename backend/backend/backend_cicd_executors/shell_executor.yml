@@ -1,0 +1,125 @@
+spec:
+  inputs:
+    TEST_APP:
+      type: boolean
+      default: true
+      description: "Тестировать ли приложение?"
+    BUILD_APP:
+      description: "Собирать ли приложение?"
+      type: boolean
+    SECURITY_CHECK:
+      description: "Делать ли SAST?"
+      type: boolean
+    DEPLOY_APP:
+      description: "Куда деплоить приложение?"
+      type: string
+
+    ENVIRONMENT:
+      type: string
+    
+    EXECUTOR:
+      type: string
+
+    DEPLOY_DIR:
+      type: string
+      description: "Директория в которую деплоим"
+    DEPLOY_SERVICE_NAME:
+      type: string
+      description: "Название systemd юнита для деплоя сервиса(указываем при деплое на машину)"
+---
+
+prepare_job_shell:
+  extends: .backend_shell_executor
+  stage: prepare
+  environment: $[[ inputs.ENVIRONMENT ]]
+  tags:
+    - shell_debian
+  cache:
+    key: !reference [.go_cache,cache,key]
+    paths: !reference [.go_cache,cache,paths]
+    policy: pull-push
+    when: on_success
+
+  script:
+    - go mod download
+
+
+lint_job_shell:
+  extends: .backend_shell_executor
+  stage: lint
+  tags:
+    - shell_debian
+  script:
+    - golangci-lint run
+  allow_failure: true
+  
+
+test_job_shell:
+  extends: .backend_shell_executor
+  stage: test
+  environment: $[[ inputs.ENVIRONMENT ]]
+  tags:
+    - shell_debian
+  script:
+    - git clean -ndx
+    - go test -v
+  cache:
+    key: !reference [.go_cache,cache,key]
+    paths: !reference [.go_cache,cache,paths]
+    policy: pull
+
+  rules:
+    - if: $[[ inputs.TEST_APP ]] == true
+
+
+build_job_shell:
+  extends: .backend_shell_executor
+  stage: build
+  tags:
+    - shell_debian
+  environment: $[[ inputs.ENVIRONMENT ]]
+  cache:
+    key: !reference [.go_cache,cache,key]
+    paths: !reference [.go_cache,cache,paths]
+    policy: pull
+  
+  script:
+    - go build -o app .
+  artifacts:
+    paths:
+      - backend/app
+    expire_in: 1 week
+  rules:
+    - if: $[[ inputs.BUILD_APP ]] == true
+
+deploy_app_machine_shell_executor:
+  extends: .backend_shell_executor
+  environment: $[[ inputs.ENVIRONMENT ]]
+  stage: deploy
+  needs:
+    - job: build_job_shell
+      artifacts: true
+  tags:
+    - shell_debian
+  script:
+    - cp ./app ../systemd_units/* $[[ inputs.DEPLOY_DIR ]]/
+    - sudo $[[ inputs.DEPLOY_DIR]]/deploy_unit.sh $[[ inputs.DEPLOY_SERVICE_NAME ]]
+
+  when: manual
+  rules:
+    - if: ('$[[ inputs.DEPLOY_APP ]] == "machine_shell"')
+
+trigger_frontend:
+  stage: deploy
+  trigger:
+    project: deploy_project/frontend
+    branch: master
+    strategy: mirror
+    inputs:
+      TEST_APP: $[[ inputs.TEST_APP ]]
+      BUILD_APP: $[[ inputs.BUILD_APP ]]
+      DEPLOY_APP: $[[ inputs.DEPLOY_APP ]]
+      SECURITY_CHECK: $[[ inputs.SECURITY_CHECK ]]
+      ENVIRONMENT: $[[ inputs.ENVIRONMENT ]]
+      EXECUTOR: $[[ inputs.EXECUTOR ]]
+      DEPLOY_DIR: $[[ inputs.DEPLOY_DIR ]]

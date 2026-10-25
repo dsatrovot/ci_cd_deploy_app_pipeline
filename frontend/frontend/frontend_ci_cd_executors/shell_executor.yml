@@ -1,0 +1,121 @@
+spec:
+  inputs:
+    TEST_APP:
+      type: boolean
+      default: true
+      description: "Тестировать ли приложение?"
+    BUILD_APP:
+      description: "Собирать ли приложение?"
+      type: boolean
+    SECURITY_CHECK:
+      description: "Делать ли SAST?"
+      type: boolean
+    DEPLOY_APP:
+      description: "Куда деплоить приложение?"
+      type: string
+
+    ENVIRONMENT:
+      type: string
+
+    DEPLOY_DIR:
+      type: string
+      default: "/opt/pulseapp_frontend"
+      description: "Директория в которую деплоим"
+
+    DEPLOY_NGINX_CONF_NAME:
+      type: string
+      default: ""
+      description: "Название systemd юнита для деплоя сервиса(указываем при деплое на машину)"
+---
+
+prepare_job_shell:
+  extends: .frontend_shell_executor
+  stage: prepare
+  environment: $[[ inputs.ENVIRONMENT ]]
+  tags:
+    - shell_debian
+  cache:
+    key: !reference [.js_cache,cache,key]
+    paths: !reference [.js_cache,cache,paths]
+    policy: pull-push
+    when: on_success
+
+  script:
+    - npm install --cache .npm --prefer-offline
+
+lint_job_shell:
+  extends: .frontend_shell_executor
+  stage: lint
+  tags:
+    - shell_debian
+  script:
+    - npm run lint
+  cache:
+    key: !reference [.js_cache,cache,key]
+    paths: !reference [.js_cache,cache,paths]
+    policy: pull
+  allow_failure: true
+  
+
+test_job_shell:
+  extends: .frontend_shell_executor
+  stage: test
+  environment: $[[ inputs.ENVIRONMENT ]]
+  tags:
+    - shell_debian
+  script:
+    - git clean -ndx
+    - npm run test
+  cache:
+    key: !reference [.js_cache,cache,key]
+    paths: !reference [.js_cache,cache,paths]
+    policy: pull
+  allow_failure: true
+  rules:
+    - if: $[[ inputs.TEST_APP ]] == true
+
+
+build_job_shell:
+  extends: .frontend_shell_executor
+  stage: build
+  tags:
+    - shell_debian
+  environment: $[[ inputs.ENVIRONMENT ]]
+  cache:
+    key: !reference [.js_cache,cache,key]
+    paths: !reference [.js_cache,cache,paths]
+    policy: pull
+  
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist
+    expire_in: 1 week
+  rules:
+    - if: $[[ inputs.BUILD_APP ]] == true
+
+deploy_app_machine_shell_executor:
+  extends: .frontend_shell_executor
+  environment: $[[ inputs.ENVIRONMENT ]]
+  stage: deploy
+  needs:
+    - job: build_job_shell
+      artifacts: true
+  tags:
+    - shell_debian
+  cache:
+    key: !reference [.js_cache,cache,key]
+    paths: !reference [.js_cache,cache,paths]
+    policy: pull
+  script:
+    - cp -r ./dist/* ../nginx_static_files/*  $[[ inputs.DEPLOY_DIR ]]/
+    - |
+      if [[ "$[[ inputs.DEPLOY_NGINX_CONF_NAME ]]" != "" ]]; then
+        sudo $[[ inputs.DEPLOY_DIR]]/deploy_unit.sh $[[ inputs.DEPLOY_NGINX_CONF_NAME ]]
+      else
+        sudo $[[ inputs.DEPLOY_DIR ]]/deploy_unit.sh
+      fi
+  when: manual
+  rules:
+    - if: ('$[[ inputs.DEPLOY_APP ]] == "machine_shell"')

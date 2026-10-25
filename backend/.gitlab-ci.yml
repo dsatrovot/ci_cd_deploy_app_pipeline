@@ -1,0 +1,101 @@
+spec:
+  inputs:
+    TEST_APP:
+      type: boolean
+      default: true
+      description: "Тестировать ли приложение?"
+
+    BUILD_APP:
+      description: "Собирать ли приложение?"
+      type: boolean
+      rules:
+        - if: $[[ inputs.TEST_APP ]] == true
+          default: true
+
+    SECURITY_CHECK:
+      description: "Делать ли SAST?"
+      type: boolean
+      default: false
+    
+    EXECUTOR:
+      type: string
+      options:
+        - shell_executor
+        - docker_executor
+      default: shell_executor
+
+    DEPLOY_APP:
+      description: "Куда деплоить приложение?"
+      type: string
+      rules:
+        - if: ($[[ inputs.BUILD_APP ]] == true) && ('$[[ inputs.EXECUTOR ]] == "shell_executor"')
+          options:
+            - kubernetes_cluster
+            - machine_shell
+          default: machine_shell
+        - if: ($[[ inputs.BUILD_APP ]] == true) && ('$[[ inputs.EXECUTOR ]] == "docker_executor"')
+          options:
+            - kubernetes_cluster
+            - machine_docker
+          default: machine_docker
+    
+    ENVIRONMENT:
+      type: string
+      options:
+        - test_environment
+        - stage
+        - prod
+    
+    DEPLOY_DIR:
+      type: string
+      description: "Директория в которую деплоим"
+    
+    DEPLOY_SERVICE_NAME:
+      type: string
+      description: "Название systemd юнита для деплоя сервиса(указываем при деплое на машину)"
+
+--- 
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE ==  "web"'
+    - when: never
+stages:
+  - prepare
+  - lint
+  - test
+  - security
+  - build
+  - deploy
+
+include:
+  - local: 'backend_template/backend_shell_executor.yml'
+  - local: 'backend/backend_cicd_executors/shell_executor.yml'
+    inputs:
+      TEST_APP: $[[ inputs.TEST_APP ]]
+      BUILD_APP: $[[ inputs.BUILD_APP ]]
+      DEPLOY_APP: $[[ inputs.DEPLOY_APP ]]
+      ENVIRONMENT: $[[ inputs.ENVIRONMENT ]]
+      SECURITY_CHECK: $[[ inputs.SECURITY_CHECK ]]
+      DEPLOY_DIR: $[[ inputs.DEPLOY_DIR ]]
+      DEPLOY_SERVICE_NAME: $[[ inputs.DEPLOY_SERVICE_NAME ]]
+      EXECUTOR: $[[ inputs.EXECUTOR ]]
+    rules:
+      - if: ('$[[ inputs.EXECUTOR ]] == "shell_executor"')
+variables:
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go/pkg/mod"
+  GIT_CLEAN_FLAGS: "-ffdx -e .cache/go/pkg/mod/"
+
+.go_cache:
+  cache:
+    key:
+      files:
+        - backend/go.sum
+    paths:
+      - .cache/go/pkg/mod/
+
+
+
+
+    
+
+
